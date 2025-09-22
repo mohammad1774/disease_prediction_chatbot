@@ -1,0 +1,44 @@
+name: Build and Push Docker Image 
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      #1. checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      #2 Log in to Docker Hub
+      - name: Log in to Docker Hub
+        run: echo "${{  secrets.DOCKER_PASSWORD  }}" | docker login -u "${{  secrets.DOCKER_USERNAME  }}" --password-stdin
+
+      #3 Build Docker image
+      - name: Build Docker Image
+        run: |
+          echo "🔨 Building Docker image..."
+          docker build -t ${{  secrets.DOCKER_USERNAME}}/disease_prediction_chatbot:latest .
+      - name: Run Container for testing
+        run: | 
+          echo "Running container to test API & streamlit"
+          docker run -d --name test_container \ 
+            -p 8000:8000 -p 8001:8001 \
+            -e OPENAI_API_KEY=${{  secrets.OPENAI_API_KEY  }} \
+            -e LANGCHAIN_API_KEY=${{  secrets.LANGCHAIN_API_KEY  }} \
+            ${{  secrets.DOCKER_USERNAME  }}/diseasse_prediction_chatbot:latest
+          sleep 30
+          curl -f http://localhost:8000/docs || (echo "❌ FastAPI not responding!" && exit 1)
+          curl -f http://localhost:8001 || (echo "❌ streamlit not responding!" && exit 1)
+          docker stop test_container
+      - name: Push docker image
+        run: |
+          echo " Pushing docker image to Docker Hub"
+          docker push ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_chatbot:latest
+          docker tag ${{ secrets.DOCKER_USERNAME }}/disease_prediction_chatbot:latest \
+            ${{ secrets.DOCKER_USERNAME }}/disease_prediction_chatbot:${{ github.sha }}
+          docker push ${{ secrets.DOCKER_USERNAME }}/disease_prediction_chatbot:${{ github.sha }}
