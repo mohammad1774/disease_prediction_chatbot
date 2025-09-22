@@ -15,6 +15,7 @@ def predict(input_data: InputData):
         # Run ML model
         prediction = run_model_e11(input_data.data)
 
+        print(prediction)
         # Generate GPT explanation with user input
         gpt_output = explain_prediction(input_data.data, prediction, input_data.query)
 
@@ -23,4 +24,5 @@ def predict(input_data: InputData):
         return prediction
 
     except Exception as e:
+        print(str(e))
         return {"error": str(e)}

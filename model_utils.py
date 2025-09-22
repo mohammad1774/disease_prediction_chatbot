@@ -15,5 +15,6 @@ def run_model_e11(data: dict):
     if hasattr(model, "predict_proba"):
         result["probabilities"] = model.predict_proba(df).tolist()
 
+    print(result)
     return result
 
