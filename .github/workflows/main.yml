@@ -30,7 +30,7 @@ jobs:
             -p 8000:8000 -p 8001:8001 \
             -e OPENAI_API_KEY=${{  secrets.OPENAI_API_KEY  }} \
             -e LANGCHAIN_API_KEY=${{  secrets.LANGCHAIN_API_KEY  }} \
-            ${{  secrets.DOCKER_USERNAME  }}/diseasse_prediction_chatbot:latest
+            ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_chatbot:latest
           sleep 30
           curl -f http://localhost:8000/docs || (echo "❌ FastAPI not responding!" && exit 1)
           curl -f http://localhost:8001 || (echo "❌ streamlit not responding!" && exit 1)
