@@ -31,7 +31,8 @@ def explain_prediction(patient_data: dict, prediction: dict, user_query: str) ->
     1. Explanation of the predictions
     2. Limitations or missing info
     3. Suggested follow-up actions
-    4. A disclaimer that this is not medical advice
+    4. Suggested medications or lifestyle changes based on demographics
+    5. A disclaimer that this is not medical advice
     """
 
     prompt = ChatPromptTemplate.from_template(template)
