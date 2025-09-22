@@ -24,17 +24,19 @@ jobs:
           echo "🔨 Building Docker image..."
           docker build -t ${{  secrets.DOCKER_USERNAME}}/disease_prediction_chatbot:latest .
       - name: Run Container for testing
-        run: | 
-          echo "Running container to test API & streamlit"
-          docker run -d --name test_container \ 
+        run: |
+          echo "Running container to test API & Streamlit"
+          docker run -d --name test_container \
             -p 8000:8000 -p 8001:8001 \
-            -e OPENAI_API_KEY=${{  secrets.OPENAI_API_KEY  }} \
-            -e LANGCHAIN_API_KEY=${{  secrets.LANGCHAIN_API_KEY  }} \
-            ${{  secrets.DOCKER_USERNAME  }}/diseasse_prediction_chatbot:latest
+            -e OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
+            -e LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }} \
+            ${{ secrets.DOCKER_USERNAME }}/disease_prediction_chatbot:latest
           sleep 30
           curl -f http://localhost:8000/docs || (echo "❌ FastAPI not responding!" && exit 1)
-          curl -f http://localhost:8001 || (echo "❌ streamlit not responding!" && exit 1)
+          curl -f http://localhost:8001 || (echo "❌ Streamlit not responding!" && exit 1)
+          docker logs test_container || true
           docker stop test_container
+
       - name: Push docker image
         run: |
           echo " Pushing docker image to Docker Hub"
