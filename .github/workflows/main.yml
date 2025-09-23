@@ -40,7 +40,7 @@ jobs:
           echo "Runnig Container frontend"
           docker run -d --name test_container_frontend \
             -p 8001:8001 \
-            -e ENDPOINT_URL=http://test_container_backend:8000 \
+            -e ENDPOINT_URL=http://localhost:8000 \
             ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_frontend:latest
 
           sleep 30
@@ -68,3 +68,58 @@ jobs:
           docker tag ${{ secrets.DOCKER_USERNAME }}/disease_prediction_frontend:latest \
             ${{ secrets.DOCKER_USERNAME }}/disease_prediction_frontend:${{ github.sha }}
           docker push ${{ secrets.DOCKER_USERNAME }}/disease_prediction_frontend:${{ github.sha }}
+  kubernetes:
+    needs: docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Install Kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+          kubectl version --client
+
+      # 3. Install minikube
+      - name: Install minikube
+        run: |
+          curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+          sudo install minikube-linux-amd64 /usr/local/bin/minikube
+          minikube version
+
+      - name: Start Minikube
+        run: |
+          minikube start --driver=docker --kubernetes-version=v1.30.0
+          kubectl get nodes
+      
+      - name: Apply Kubernetest manifests
+        run: | 
+          kubectl apply -f k8s/
+          kubectl get all
+
+      - name: Wait for Pods
+        run: |
+          kubectl wait --for=condition=ready pod --all --timeout=240s
+
+      - name: Test webapp service
+        run: |
+          sleep 10
+          URL=$(minikube service webapp-service --url)
+          curl -f $URL || (echo "❌ Webapp not reachable" && exit 1)
+      - name: Test backend Service
+        run: |
+          kubectl run curlpod --rm -i --image=curlimages/curl --restart=Never -- \
+            curl -X POST http://endpoint-service:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"data":{"bmi":25,"weight":70,"height_filled":175,"delta_age":30,"50931":0}, "query":"test"}'
+      - name: ✅ All tests passed
+        if: success()
+        run: |
+          echo "🎉 All tests passed successfully!"
+          echo "🚀 Docker images built & pushed, Kubernetes cluster running fine."
+          
+
+
+
+
