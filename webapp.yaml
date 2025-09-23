@@ -16,7 +16,8 @@ spec:
     spec:
       containers:
         - name: webapp
-          image: mohammad1774/disease_prediction_frontend
+          image: mohammad1774/disease_prediction_frontend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8001
           env:

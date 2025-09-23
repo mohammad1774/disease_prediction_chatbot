@@ -18,6 +18,7 @@ spec:
       containers:
         - name: model-endpoint
           image: mohammad1774/disease_prediction_backend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
           env:
