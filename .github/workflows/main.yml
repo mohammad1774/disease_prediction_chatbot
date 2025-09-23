@@ -40,7 +40,7 @@ jobs:
           echo "Runnig Container frontend"
           docker run -d --name test_container_frontend \
             -p 8001:8001 \
-            -e ENDPOINT_URL=http://test_container_backend:8000
+            -e ENDPOINT_URL=http://test_container_backend:8000 \
             ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_frontend:latest
 
           sleep 30
