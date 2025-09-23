@@ -102,7 +102,6 @@ jobs:
         run: |
           kubectl rollout status deployment/endpoint-deployment --timeout=240s
           kubectl rollout status deployment/webapp-deployment --timeout=240s
-          kubectl rollout status deployment/mongo-deployment --timeout=240s
 
 
       - name: Test webapp service
