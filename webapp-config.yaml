@@ -3,4 +3,4 @@ kind: ConfigMap
 metadata:
   name: webapp-config
 data:
-  ENDPOINT_URL: endpoint-service
+  ENDPOINT_URL: "http://endpoint-service:8000"
