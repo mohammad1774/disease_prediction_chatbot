@@ -1,6 +1,11 @@
 import streamlit as st
 import pandas as pd
 import requests
+from dotenv import load_dotenv
+import os
+load_dotenv()
+
+ENDPOINT_URL = os.getenv("ENDPOINT_URL")
 
 # ------------------------
 # Training Feature Groups
@@ -138,7 +143,7 @@ if submitted:
     # st.json(user_data)
 
     # Send to API
-    api_url = "http://127.0.0.1:8000/predict"
+    api_url = "http://{ENDPOINT_URL}:8000/predict"
     response = requests.post(api_url, json={"data": user_data,"query": query})
 
     if response.status_code == 200:

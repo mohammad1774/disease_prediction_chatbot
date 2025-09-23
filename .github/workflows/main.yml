@@ -19,28 +19,52 @@ jobs:
         run: echo "${{  secrets.DOCKER_PASSWORD  }}" | docker login -u "${{  secrets.DOCKER_USERNAME  }}" --password-stdin
 
       #3 Build Docker image
-      - name: Build Docker Image
+      - name: Build Docker Image of Backend
         run: |
-          echo "🔨 Building Docker image..."
-          docker build -t ${{  secrets.DOCKER_USERNAME}}/disease_prediction_chatbot:latest .
+          echo "🔨 Building Backend Docker image..."
+          docker build -f Dockerfile.api -t ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_backend:latest .
+      
+      - name: Build Docker Image of Frontend
+        run: |
+          echo "🔨 Building Frontend Docker image..."
+          docker build -f Dockerfile.ui -t ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_frontend:latest .
+
       - name: Run Container for testing
         run: |
           echo "Running container to test API & Streamlit"
-          docker run -d --name test_container \
-            -p 8000:8000 -p 8001:8001 \
-            -e OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
-            -e LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }} \
-            ${{ secrets.DOCKER_USERNAME }}/disease_prediction_chatbot:latest
+          docker run -d --name test_container_backend \
+            -p 8000:8000 \
+            -e OPENAI_API_KEY=${{  secrets.OPENAI_API_KEY  }} \
+            -e LANGCHAIN_API_KEY=${{  secrets.LANGCHAIN_API_KEY  }} \
+            ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_backend:latest
+          echo "Runnig Container frontend"
+          docker run -d --name test_container_frontend \
+            -p 8001:8001 \
+            -e ENDPOINT_URL=http://test_container_backend:8000
+            ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_frontend:latest
+
           sleep 30
           curl -f http://localhost:8000/docs || (echo "❌ FastAPI not responding!" && exit 1)
           curl -f http://localhost:8001 || (echo "❌ Streamlit not responding!" && exit 1)
-          docker logs test_container || true
-          docker stop test_container
+          docker logs test_container_backend || true
+          docker stop test_container_backend
+          docker logs test_container_frontend || true
+          docker stop test_container_frontend
 
-      - name: Push docker image
+
+      - name: Push Backend docker image
         run: |
           echo " Pushing docker image to Docker Hub"
-          docker push ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_chatbot:latest
-          docker tag ${{ secrets.DOCKER_USERNAME }}/disease_prediction_chatbot:latest \
-            ${{ secrets.DOCKER_USERNAME }}/disease_prediction_chatbot:${{ github.sha }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/disease_prediction_chatbot:${{ github.sha }}
+          docker push ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_backend:latest
+          docker tag ${{ secrets.DOCKER_USERNAME }}/disease_prediction_backend:latest \
+            ${{ secrets.DOCKER_USERNAME }}/disease_prediction_backend:${{ github.sha }}
+          docker push ${{ secrets.DOCKER_USERNAME }}/disease_prediction_backend:${{ github.sha }}
+
+          
+      - name: Push Frontend docker image
+        run: |
+          echo " Pushing docker image to Docker Hub"
+          docker push ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_frontend:latest
+          docker tag ${{ secrets.DOCKER_USERNAME }}/disease_prediction_frontend:latest \
+            ${{ secrets.DOCKER_USERNAME }}/disease_prediction_frontend:${{ github.sha }}
+          docker push ${{ secrets.DOCKER_USERNAME }}/disease_prediction_frontend:${{ github.sha }}
