@@ -16,19 +16,19 @@ spec:
         app: endpoint
     spec:
       containers:
-        - name: modelEndpoint
-          image: mohammad1774/disease_prediction_backend
+        - name: model-endpoint
+          image: mohammad1774/disease_prediction_backend:latest
           ports:
             - containerPort: 8000
           env:
             - name: OPENAI_API_KEY
               valueFrom:
-                secreKeyRef:
+                secretKeyRef:     # ✅ fixed spelling
                   name: webapp-secrets
                   key: OPENAI_API_KEY
             - name: LANGCHAIN_API_KEY
               valueFrom:
-                secreKeyRef:
+                secretKeyRef:     # ✅ fixed spelling
                   name: webapp-secrets
                   key: LANGCHAIN_API_KEY
 

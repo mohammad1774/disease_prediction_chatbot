@@ -143,7 +143,7 @@ if submitted:
     # st.json(user_data)
 
     # Send to API
-    api_url = "http://{ENDPOINT_URL}:8000/predict"
+    api_url = "{ENDPOINT_URL}/predict"
     response = requests.post(api_url, json={"data": user_data,"query": query})
 
     if response.status_code == 200:
