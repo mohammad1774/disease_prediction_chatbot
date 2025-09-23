@@ -98,9 +98,12 @@ jobs:
           kubectl apply -f k8s/
           kubectl get all
 
-      - name: Wait for Pods
+      - name: Wait for Deployments
         run: |
-          kubectl wait --for=condition=ready pod --all --timeout=240s
+          kubectl rollout status deployment/endpoint-deployment --timeout=240s
+          kubectl rollout status deployment/webapp-deployment --timeout=240s
+          kubectl rollout status deployment/mongo-deployment --timeout=240s
+
 
       - name: Test webapp service
         run: |
