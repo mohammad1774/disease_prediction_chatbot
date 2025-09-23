@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-deployment
+  labels:
+    app: webapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      containers:
+        - name: webapp
+          image: mohammad1774/disease_prediction_frontend
+          ports:
+            - containerPort: 8001
+          env:
+            - name: ENDPOINT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: webapp-config
+                  key: ENDPOINT_URL
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-service
+spec:
+  type: NodePort
+  selector:
+    app: webapp
+  ports:
+    - protocol: TCP
+      port: 8001
+      targetPort: 8001
+      nodePort: 30100

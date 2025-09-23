@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: endpoint-deployment
+  labels:
+    app: endpoint
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: endpoint
+  template:
+    metadata:
+      labels:
+        app: endpoint
+    spec:
+      containers:
+        - name: modelEndpoint
+          image: mohammad1774/disease_prediction_backend
+          ports:
+            - containerPort: 8000
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secreKeyRef:
+                  name: webapp-secrets
+                  key: OPENAI_API_KEY
+            - name: LANGCHAIN_API_KEY
+              valueFrom:
+                secreKeyRef:
+                  name: webapp-secrets
+                  key: LANGCHAIN_API_KEY
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: endpoint-service
+spec:
+  selector:
+    app: endpoint
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
