@@ -5,6 +5,10 @@ on:
         branches:
             - terraform-test
 
+permissions:
+    id-token: write
+    contents: read
+
 jobs:
     terraform_test:
         runs-on: ubuntu-latest
