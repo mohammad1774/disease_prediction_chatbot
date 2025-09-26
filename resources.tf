@@ -1,5 +1,5 @@
 resource "azurerm_resource_group" "mtc-rg" {
-  name     = "example-resources"
+  name     = "mtc-resources"
   location = "canadacentral"
   tags = {
     environmet = "dev"
