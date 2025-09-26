@@ -2,7 +2,7 @@ name: Terraform Provisioning
 
 on:
   push:
-    branches: [main, terraform-test]
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
@@ -19,16 +19,14 @@ permissions:
 jobs:
   terraform_test:
     runs-on: ubuntu-latest
-
     steps:
-      #1. Checkout repo
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{  secrets.AZURE_CREDENTIALS  }}  
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Export Terraform Env Vars
         run: |
@@ -39,57 +37,54 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-        with: 
+        with:
           terraform_version: 1.13.3
-      
 
-      
       - name: Terraform Init
         run: terraform init -reconfigure
-          
-        #Commit to main branch 
-      - name: Terraform Plan (apply Path)
+
+      # Push to main: plan + apply
+      - name: Terraform Plan (auto on main)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: terraform plan -out=tfplan
 
-      - name: Terraform Plan (apply Path)
+      - name: Terraform Apply (auto on main)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve tfplan
 
-        #Plan the deployment "dry run"
-      - name: Terraform Plan Dry Run
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action=='plan'
+      # Manual plan-only
+      - name: Terraform Plan (manual dry-run)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan'
         run: terraform plan -no-color
 
-        #apply the deployment
-      - name: Terraform Plan (Manual Apply)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action=='apply'
+      # Manual apply
+      - name: Terraform Plan (manual apply)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
         run: terraform plan -out=tfplan
 
-      - name: Terraform Apply (Manual Apply)
+      - name: Terraform Apply (manual apply)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
         run: terraform apply -auto-approve tfplan
 
-        #destroy the deployment
-      - name: Terraform Plan (Manual Destroy)
+      # Manual destroy
+      - name: Terraform Plan (manual destroy)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
         run: terraform plan -destroy -out=tfplan
 
-      - name: Terraform Apply
+      - name: Terraform Apply (manual destroy)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
         run: terraform apply -auto-approve tfplan
 
   k8s_spin:
     needs: terraform_test
-
+    # only run k8s if infra was applied (not for plan/destroy)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
     runs-on: ubuntu-latest
     steps:
-      #1. Checkout repo
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Azure Login
-      uses: azure/login@v2
-      with:
-        creds: ${{  secrets.AZURE_CREDENTIALS  }}  
-
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
