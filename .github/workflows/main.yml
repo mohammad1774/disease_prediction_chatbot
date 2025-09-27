@@ -86,6 +86,7 @@ jobs:
 
   docker-push-build:
     needs: terraform_provisioning
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
     runs-on: ubuntu-latest
     
     steps:
