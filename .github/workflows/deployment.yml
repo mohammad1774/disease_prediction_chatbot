@@ -1,0 +1,165 @@
+name: Containerisation & Deployment
+
+on:
+  push:
+    branches: [terraform-test, main]
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        description: What do you want to do?
+        options: [image_creation, kubernetes_deployment, all]
+        default: all
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  docker-push-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Log in to Azure Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.AZURE_ACR_LOGIN_SERVER }}
+          username: ${{ secrets.AZURE_ACR_USERNAME }}
+          password: ${{  secrets.AZURE_ACR_PASSWORD  }}
+
+      - name: Build Docker Image of Backend
+        run: |
+          echo "🔨 Building Backend Docker image..."
+          docker build -f Dockerfile.api -t ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_backend:latest .
+      
+      - name: Build Docker Image of Frontend
+        run: |
+          echo "🔨 Building Frontend Docker image..."
+          docker build -f Dockerfile.ui -t ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_frontend:latest .
+
+      - name: Run Container for testing
+        run: |
+          echo "Running container to test API & Streamlit"
+          docker run -d --name test_container_backend \
+            -p 8000:8000 \
+            -e OPENAI_API_KEY=${{  secrets.OPENAI_API_KEY  }} \
+            -e LANGCHAIN_API_KEY=${{  secrets.LANGCHAIN_API_KEY  }} \
+            ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_backend:latest
+          echo "Runnig Container frontend"
+          docker run -d --name test_container_frontend \
+            -p 8001:8001 \
+            -e ENDPOINT_URL=http://localhost:8000 \
+            ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_frontend:latest
+
+          sleep 30
+          curl -f http://localhost:8000/docs || (echo "❌ FastAPI not responding!" && exit 1)
+          curl -f http://localhost:8001 || (echo "❌ Streamlit not responding!" && exit 1)
+          docker logs test_container_backend || true
+          docker stop test_container_backend
+          docker logs test_container_frontend || true
+          docker stop test_container_frontend
+
+      - name: Push Backend docker image
+        run: |
+          echo " Pushing docker image to Docker Hub"
+          docker push ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_backend:latest
+          docker tag ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_backend:latest \
+            ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_backend:${{ github.sha }}
+          docker push ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_backend:${{ github.sha }}
+
+          
+      - name: Push Frontend docker image
+        run: |
+          echo " Pushing docker image to Docker Hub"
+          docker push ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_frontend:latest
+          docker tag ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_frontend:latest \
+            ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_frontend:${{ github.sha }}
+          docker push ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_frontend:${{ github.sha }}
+
+
+  k8s_spin:
+    needs: docker-push-build 
+    # only run k8s if infra was applied (not for plan/destroy)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'all') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'kubernetes_deployment')  
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+
+      - name: Write Kubeconfig from github env
+        run: | 
+          echo "${{ secrets.AKS_KUBECONFIG }}" > kubeconfig.yaml
+          echo "KUBECONFIG=$PWD/kubeconfig.yaml" >> $GITHUB_ENV
+
+      - name: Verify Cluster Access
+        run: kubectl get nodes
+
+      - name: Deploy Webapp + Endpoint
+        run: |
+          kubectl create secret generic webapp-secrets \
+          --from-literal=OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY  }}\
+          --from-literal=LANGCHAIN_API_KEY=${{  secrets.LANGCHAIN_API_KEY  }}\
+          --dry-run=client -o yaml | kubectl apply -f - 
+          kubectl apply -f k8s/ --exclude=webapp-secrets.yaml
+
+      - name: Wait for Deployments
+        run: |
+          kubectl rollout status deployment/endpoint-deployment --timeout=240s
+          kubectl rollout status deployment/webapp-deployment --timeout=240s
+
+      - name: Test webapp service (external)
+        run: |
+          echo "⏳ Waiting for LoadBalancer IP..."
+          for i in {1..30}; do
+            IP=$(kubectl get svc webapp-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+            if [ ! -z "$IP" ]; then
+              echo "✅ Found external IP: $IP"
+              break
+            fi
+            echo "Waiting for external IP..."
+            sleep 10
+          done
+
+          if [ -z "$IP" ]; then
+            echo "❌ No external IP found for webapp-service"
+            exit 1
+          fi
+
+          echo "Testing frontend at http://$IP:8001 ..."
+          curl -f http://$IP:8001 || (echo "❌ Webapp not reachable" && exit 1)
+
+      - name: Test backend service (internal)
+        run: |
+          kubectl run curlpod --rm -i --image=curlimages/curl --restart=Never -- \
+            curl -X POST http://endpoint-service:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"data":{"bmi":25,"weight":70,"height_filled":175,"delta_age":30,"50931":0}, "query":"test"}'
+
+      - name: ✅ All tests passed
+        if: success()
+        run: |
+          echo "🎉 All tests passed successfully!"
+          echo "🚀 Docker images built & pushed, Kubernetes cluster running fine."
+
+      - name: Webapp IP address
+        run: |
+            kubectl get svc webapp-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+
+      

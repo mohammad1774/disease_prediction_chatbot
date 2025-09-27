@@ -34,11 +34,11 @@ kind: Service
 metadata:
   name: webapp-service
 spec:
-  type: NodePort
+  type: LoadBalancer
   selector:
     app: webapp
   ports:
     - protocol: TCP
       port: 8001
       targetPort: 8001
-      nodePort: 30100
+
