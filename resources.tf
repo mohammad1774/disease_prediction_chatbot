@@ -41,7 +41,7 @@ resource "azurerm_kubernetes_cluster" "prediction-aks" {
 resource "azurerm_role_assignment" "aks_acr_pull" {
   principal_id = azurerm_kubernetes_cluster.prediction-aks.kubelet_identity[0].object_id
   role_definition_id = "AcrPull"
-  scope = azurerm_container_registry.prediction-acr.acr.id
+  scope = azurerm_container_registry.prediction-acr.id
 }
 
 
