@@ -34,14 +34,15 @@ resource "azurerm_kubernetes_cluster" "prediction-aks" {
   identity {
     type = "SystemAssigned"
   }
+
 }
 
 
 #Azure k8s pull access 
 resource "azurerm_role_assignment" "aks_acr_pull" {
-  principal_id       = azurerm_kubernetes_cluster.prediction-aks.kubelet_identity[0].object_id
-  role_definition_id = "AcrPull"
-  scope              = azurerm_container_registry.prediction-acr.id
+  principal_id         = azurerm_kubernetes_cluster.prediction-aks.kubelet_identity[0].object_id
+  role_definition_name = "AcrPull"
+  scope                = azurerm_container_registry.prediction-acr.id
 }
 
 
