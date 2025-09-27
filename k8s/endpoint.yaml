@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: model-endpoint
-          image: mohammadacr1774/disease_prediction_backend:latest
+          image: mohammadacr1774.azurecr.io/disease_prediction_backend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
