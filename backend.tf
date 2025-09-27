@@ -6,11 +6,12 @@ terraform {
     key                  = "infra.tfstate"
   }
 
-  required_providers {
+   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "=3.0.0"
+      version = ">=3.100.0"   # latest stable
     }
   }
+  required_version = ">=1.5.0"
 }
 
