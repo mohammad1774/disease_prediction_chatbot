@@ -1,0 +1,99 @@
+name: Kubernetes Apply
+
+on:
+    push: 
+        branches: [main]
+
+    workflow_dispatch:
+        inputs:
+          action:
+            type: choice
+            description: What do you want to do?
+            options: [apply, delete-all]
+            default: apply
+            required: true
+
+jobs:
+    k8s_spin:
+    
+    
+        runs-on: ubuntu-latest
+        steps:
+        - name: Checkout Repository
+          uses: actions/checkout@v4
+
+        - name: Azure Login
+          uses: azure/login@v2
+          with:
+            creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+
+        - name: Set AKS context
+          uses: azure/aks-set-context@v3
+          with:
+            resource-group: disease-prediction-rg
+            cluster-name: prediction-aks
+
+        - name: Verify Cluster Access
+          run: kubectl get nodes
+
+        - name: Deploy Webapp + Endpoint
+          if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+          run: |
+            kubectl apply -f k8s/ 
+
+        - name: Wait for Deployments
+          if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+          run: |
+            kubectl rollout status deployment/endpoint-deployment --timeout=240s
+            kubectl rollout status deployment/webapp-deployment --timeout=240s
+
+        - name: Test webapp service (external)
+          if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+          run: |
+            echo "⏳ Waiting for LoadBalancer IP..."
+            for i in {1..30}; do
+                IP=$(kubectl get svc webapp-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+                if [ ! -z "$IP" ]; then
+                echo "✅ Found external IP: $IP"
+                break
+                fi
+                echo "Waiting for external IP..."
+                sleep 10
+            done
+
+            if [ -z "$IP" ]; then
+                echo "❌ No external IP found for webapp-service"
+                exit 1
+            fi
+
+            echo "Testing frontend at http://$IP:8001 ..."
+            curl -f http://$IP:8001 || (echo "❌ Webapp not reachable" && exit 1)
+
+        - name: Test backend service (internal)
+          if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+          run: |
+            kubectl run curlpod --rm -i --image=curlimages/curl --restart=Never -- \
+                curl -X POST http://endpoint-service:8000/predict \
+                -H "Content-Type: application/json" \
+                -d '{"data":{"bmi":25,"weight":70,"height_filled":175,"delta_age":30,"50931":0}, "query":"test"}'
+
+        - name: ✅ All tests passed
+          if: success() && github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+          run: |
+            echo "🎉 All tests passed successfully!"
+            echo "🚀 Docker images built & pushed, Kubernetes cluster running fine."
+
+        - name: Webapp IP address
+          if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+          run: |
+            kubectl get svc webapp-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+
+        - name: Destroy K8s nodes
+          if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'delete-all'
+          run: |
+            kubectl delete all -all
+        - name: All k8s pods deleted
+          if: success() && github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'delete-all'
+          run: |
+            echo "All resources are successfully removed from the aks cluster"

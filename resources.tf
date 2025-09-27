@@ -1,36 +1,49 @@
-resource "azurerm_resource_group" "mtc-rg" {
-  name     = "mtc-resources"
+
+provider "azurerm" {
+  features {}
+}
+
+#Resource Group
+resource "azurerm_resource_group" "prediction-rg" {
+  name     = "disease-prediction-rg"
   location = "canadacentral"
-  tags = {
-    environmet = "dev"
+}
+
+#Azure Container Registry
+resource "azurerm_container_registry" "prediction-acr" {
+  name                = "mohammadacr1774"
+  resource_group_name = azurerm_resource_group.prediction-rg.name
+  location            = azurerm_resource_group.prediction-rg.location
+  sku                 = "Basic"
+  admin_enabled       = true
+}
+
+#Azure Kubernetes Cluster 
+resource "azurerm_kubernetes_cluster" "prediction-aks" {
+  name                = "prediction-aks"
+  location            = azurerm_resource_group.prediction-rg.location
+  resource_group_name = azurerm_resource_group.prediction-rg.name
+  dns_prefix          = "predictionaks"
+
+  default_node_pool {
+    name       = "default"
+    node_count = 2
+    vm_size    = "Standard_DS2_V2"
   }
-}
 
-resource "azurerm_virtual_network" "mtc-vn" {
-  name                = "mtc-network"
-  resource_group_name = azurerm_resource_group.mtc-rg.name
-  location            = azurerm_resource_group.mtc-rg.location
-  address_space       = ["10.123.0.0/16"]
-
-  tags = {
-    environmet = "dev"
-  }
-}
-
-resource "azurerm_subnet" "mtc-subnet" {
-  name                 = "mtc-subnet"
-  resource_group_name  = azurerm_resource_group.mtc-rg.name
-  virtual_network_name = azurerm_virtual_network.mtc-vn.name
-  address_prefixes     = ["10.123.1.0/24"]
-}
-
-resource "azurerm_network_security_group" "mtc-sg" {
-  name                = "mtc-sg"
-  location            = azurerm_resource_group.mtc-rg.location
-  resource_group_name = azurerm_resource_group.mtc-rg.name
-
-  tags = {
-    environmet = "dev"
+  identity {
+    type = "SystemAssigned"
   }
 
 }
+
+
+#Azure k8s pull access 
+resource "azurerm_role_assignment" "aks_acr_pull" {
+  principal_id         = azurerm_kubernetes_cluster.prediction-aks.kubelet_identity[0].object_id
+  role_definition_name = "AcrPull"
+  scope                = azurerm_container_registry.prediction-acr.id
+}
+
+
+

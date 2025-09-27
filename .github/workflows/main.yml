@@ -1,33 +1,115 @@
-name: Build and Push Docker Image 
+name: Terraform Provisioning
 
 on:
   push:
-    branches:
-      - main
+    branches: [terraform-test, main]
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        description: What do you want to do?
+        options: [apply, destroy, plan]
+        default: apply
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
-  docker:
+  terraform_provisioning:
     runs-on: ubuntu-latest
-
     steps:
-      #1. checkout repo
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      #2 Log in to Docker Hub
-      - name: Log in to Docker Hub
-        run: echo "${{  secrets.DOCKER_PASSWORD  }}" | docker login -u "${{  secrets.DOCKER_USERNAME  }}" --password-stdin
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      #3 Build Docker image
+      - name: Export Terraform Env Vars
+        run: |
+          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> $GITHUB_ENV
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      # Manual plan-only
+      - name: Terraform Plan (manual dry-run)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan'
+        run: terraform plan -no-color
+
+      # Manual apply
+      - name: Terraform Plan (manual apply)
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply') || github.event_name == 'push'
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply (manual apply)
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply') || github.event_name == 'push'
+        run: terraform apply -auto-approve tfplan      
+
+      - name: Get Terraform Outputs
+        id: tf-out
+        run: |
+          echo "acr_login_server=$(terraform output -raw acr_login_server)" >> $GITHUB_OUTPUT
+          echo "acr_admin_username=$(terraform output -raw acr_admin_username)" >> $GITHUB_OUTPUT
+          echo "acr_admin_password=$(terraform output -raw acr_admin_password)" >> $GITHUB_OUTPUT
+
+        
+      - name: Save Secrets into GitHub
+        run: |
+          gh secret set AZURE_ACR_LOGIN_SERVER --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.acr_login_server }}" 
+          gh secret set AZURE_ACR_USERNAME --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.acr_admin_username }}"
+          gh secret set AZURE_ACR_PASSWORD --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.acr_admin_password }}"
+
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+
+      # Manual destroy
+      - name: Terraform Plan (manual destroy)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+        run: terraform plan -destroy -out=tfplan
+
+      - name: Terraform Apply (manual destroy)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+        run: terraform apply -auto-approve tfplan
+
+  docker-push-build:
+    needs: terraform_provisioning
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: ACR Login with Azure CLI
+        run: |
+          az acr login --name mohammadacr1774
+
       - name: Build Docker Image of Backend
         run: |
           echo "🔨 Building Backend Docker image..."
-          docker build -f Dockerfile.api -t ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_backend:latest .
+          docker build -f Dockerfile.api -t ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_backend:latest .
       
       - name: Build Docker Image of Frontend
         run: |
           echo "🔨 Building Frontend Docker image..."
-          docker build -f Dockerfile.ui -t ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_frontend:latest .
+          docker build -f Dockerfile.ui -t ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_frontend:latest .
 
       - name: Run Container for testing
         run: |
@@ -36,12 +118,12 @@ jobs:
             -p 8000:8000 \
             -e OPENAI_API_KEY=${{  secrets.OPENAI_API_KEY  }} \
             -e LANGCHAIN_API_KEY=${{  secrets.LANGCHAIN_API_KEY  }} \
-            ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_backend:latest
+            ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_backend:latest
           echo "Runnig Container frontend"
           docker run -d --name test_container_frontend \
             -p 8001:8001 \
             -e ENDPOINT_URL=http://localhost:8000 \
-            ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_frontend:latest
+            ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_frontend:latest
 
           sleep 30
           curl -f http://localhost:8000/docs || (echo "❌ FastAPI not responding!" && exit 1)
@@ -51,77 +133,20 @@ jobs:
           docker logs test_container_frontend || true
           docker stop test_container_frontend
 
-
       - name: Push Backend docker image
         run: |
           echo " Pushing docker image to Docker Hub"
-          docker push ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_backend:latest
-          docker tag ${{ secrets.DOCKER_USERNAME }}/disease_prediction_backend:latest \
-            ${{ secrets.DOCKER_USERNAME }}/disease_prediction_backend:${{ github.sha }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/disease_prediction_backend:${{ github.sha }}
+          docker push ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_backend:latest
+          docker tag ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_backend:latest \
+            ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_backend:${{ github.sha }}
+          docker push ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_backend:${{ github.sha }}
 
           
       - name: Push Frontend docker image
         run: |
           echo " Pushing docker image to Docker Hub"
-          docker push ${{  secrets.DOCKER_USERNAME  }}/disease_prediction_frontend:latest
-          docker tag ${{ secrets.DOCKER_USERNAME }}/disease_prediction_frontend:latest \
-            ${{ secrets.DOCKER_USERNAME }}/disease_prediction_frontend:${{ github.sha }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/disease_prediction_frontend:${{ github.sha }}
-  kubernetes:
-    needs: docker
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-      
-      - name: Install Kubectl
-        run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-          kubectl version --client
-
-      # 3. Install minikube
-      - name: Install minikube
-        run: |
-          curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-          sudo install minikube-linux-amd64 /usr/local/bin/minikube
-          minikube version
-
-      - name: Start Minikube
-        run: |
-          minikube start --driver=docker --kubernetes-version=v1.30.0
-          kubectl get nodes
-      
-      - name: Apply Kubernetest manifests
-        run: | 
-          kubectl apply -f k8s/
-          kubectl get all
-
-      - name: Wait for Deployments
-        run: |
-          kubectl rollout status deployment/endpoint-deployment --timeout=240s
-          kubectl rollout status deployment/webapp-deployment --timeout=240s
-
-
-      - name: Test webapp service
-        run: |
-          sleep 10
-          URL=$(minikube service webapp-service --url)
-          curl -f $URL || (echo "❌ Webapp not reachable" && exit 1)
-      - name: Test backend Service
-        run: |
-          kubectl run curlpod --rm -i --image=curlimages/curl --restart=Never -- \
-            curl -X POST http://endpoint-service:8000/predict \
-            -H "Content-Type: application/json" \
-            -d '{"data":{"bmi":25,"weight":70,"height_filled":175,"delta_age":30,"50931":0}, "query":"test"}'
-      - name: ✅ All tests passed
-        if: success()
-        run: |
-          echo "🎉 All tests passed successfully!"
-          echo "🚀 Docker images built & pushed, Kubernetes cluster running fine."
-          
-
-
-
-
+          docker push ${{  secrets.AZURE_ACR_LOGIN_SERVER  }}/disease_prediction_frontend:latest
+          docker tag ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_frontend:latest \
+            ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_frontend:${{ github.sha }}
+          docker push ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/disease_prediction_frontend:${{ github.sha }}
+  
