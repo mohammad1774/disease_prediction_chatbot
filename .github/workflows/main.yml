@@ -63,14 +63,14 @@ jobs:
           echo "acr_login_server=$(terraform output -raw acr_login_server)" >> $GITHUB_OUTPUT
           echo "acr_admin_username=$(terraform output -raw acr_admin_username)" >> $GITHUB_OUTPUT
           echo "acr_admin_password=$(terraform output -raw acr_admin_password)" >> $GITHUB_OUTPUT
-          echo "kubeconfig=$(terraform output -raw aks_kube_config)" >> $GITHUB_OUTPUT
+
         
       - name: Save Secrets into GitHub
         run: |
           gh secret set AZURE_ACR_LOGIN_SERVER --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.acr_login_server }}" 
           gh secret set AZURE_ACR_USERNAME --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.acr_admin_username }}"
           gh secret set AZURE_ACR_PASSWORD --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.acr_admin_password }}"
-          gh secret set AKS_KUBECONFIG --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.kubeconfig }}"
+
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
@@ -165,10 +165,11 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
       
 
-      - name: Write Kubeconfig from github env
-        run: | 
-          echo "${{ secrets.AKS_KUBECONFIG }}" > kubeconfig.yaml
-          echo "KUBECONFIG=$PWD/kubeconfig.yaml" >> $GITHUB_ENV
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: disease-prediction-rg
+          cluster-name: prediction-aks
 
       - name: Verify Cluster Access
         run: kubectl get nodes
