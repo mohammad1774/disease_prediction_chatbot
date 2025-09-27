@@ -43,15 +43,6 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure
 
-      # Push to main: plan + apply
-      - name: Terraform Plan (auto on main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: terraform plan -out=tfplan
-
-      - name: Terraform Apply (auto on main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: terraform apply -auto-approve tfplan
-
       # Manual plan-only
       - name: Terraform Plan (manual dry-run)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan'
@@ -59,27 +50,27 @@ jobs:
 
       # Manual apply
       - name: Terraform Plan (manual apply)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply') || github.event_name == 'push'
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply (manual apply)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
-        run: terraform apply -auto-approve tfplan
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply') || github.event_name == 'push'
+        run: terraform apply -auto-approve tfplan      
 
       - name: Get Terraform Outputs
         id: tf-out
         run: |
-          echo "acr_login_server=$(terraform output -raw acr_login_server)" >> $GITHUB_ENV
-          echo "acr_admin_username=$(terraform output -raw acr_admin_username)" >> $GITHUB_ENV
-          echo "acr_admin_password=$(terraform output -raw acr_admin_password)" >> $GITHUB_ENV
-          echo "kubeconfig=$(terraform output -raw aks_kube_config)" >> $GITHUB_ENV
+          echo "acr_login_server=$(terraform output -raw acr_login_server)" >> $GITHUB_OUTPUT
+          echo "acr_admin_username=$(terraform output -raw acr_admin_username)" >> $GITHUB_OUTPUT
+          echo "acr_admin_password=$(terraform output -raw acr_admin_password)" >> $GITHUB_OUTPUT
+          echo "kubeconfig=$(terraform output -raw aks_kube_config_b64)" >> $GITHUB_OUTPUT
         
       - name: Save Secrets into GitHub
         run: |
-          echo "${{ steps.tf-out.outputs.acr_login_server }}" | gh secret set AZURE_ACR_LOGIN_SERVER --repo $GITHUB_REPOSITORY
-          echo "${{ steps.tf-out.outputs.acr_admin_username }}" | gh secret set AZURE_ACR_USERNAME --repo $GITHUB_REPOSITORY
-          echo "${{ steps.tf-out.outputs.acr_admin_password }}" | gh secret set AZURE_ACR_PASSWORD --repo $GITHUB_REPOSITORY
-          echo "${{ env.kubeconfig }}" | gh secret set AKS_KUBECONFIG --env production --repo $GITHUB_REPOSITORY
+          gh secret set AZURE_ACR_LOGIN_SERVER --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.acr_login_server }}" 
+          gh secret set AZURE_ACR_USERNAME --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.acr_admin_username }}"
+          gh secret set AZURE_ACR_PASSWORD --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.acr_admin_password }}"
+          gh secret set AKS_KUBECONFIG --repo $GITHUB_REPOSITORY --body "${{ steps.tf-out.outputs.kubeconfig }}"
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
@@ -94,6 +85,7 @@ jobs:
         run: terraform apply -auto-approve tfplan
 
   docker-push-build:
+    needs: terraform_provisioning
     runs-on: ubuntu-latest
     
     steps:
@@ -166,7 +158,7 @@ jobs:
   k8s_spin:
     needs: docker-push-build 
     # only run k8s if infra was applied (not for plan/destroy)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'all') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'kubernetes_deployment')  
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'all') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'kubernetes_deployment')  
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -180,7 +172,7 @@ jobs:
 
       - name: Write Kubeconfig from github env
         run: | 
-          echo "${{ secrets.AKS_KUBECONFIG }}" > kubeconfig.yaml
+          echo "${{ secrets.AKS_KUBECONFIG }}" | base64 -d > kubeconfig.yaml
           echo "KUBECONFIG=$PWD/kubeconfig.yaml" >> $GITHUB_ENV
 
       - name: Verify Cluster Access
@@ -192,7 +184,7 @@ jobs:
           --from-literal=OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY  }}\
           --from-literal=LANGCHAIN_API_KEY=${{  secrets.LANGCHAIN_API_KEY  }}\
           --dry-run=client -o yaml | kubectl apply -f - 
-          kubectl apply -f k8s/ --exclude=webapp-secrets.yaml
+          kubectl apply -f k8s/ 
 
       - name: Wait for Deployments
         run: |
