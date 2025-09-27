@@ -11,7 +11,7 @@ output "acr_admin_password" {
 }
 
 output "aks_kube_config" {
-  value     = base64encode(azurerm_kubernetes_cluster.prediction-aks.kube_config_raw)
+  value     = azurerm_kubernetes_cluster.prediction-aks.kube_config_raw
   sensitive = true
 }
 

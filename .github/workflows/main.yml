@@ -167,7 +167,7 @@ jobs:
 
       - name: Write Kubeconfig from github env
         run: | 
-          echo "${{ secrets.AKS_KUBECONFIG }}" | base64 -d > kubeconfig.yaml
+          echo "${{ secrets.AKS_KUBECONFIG }}" > kubeconfig.yaml
           echo "KUBECONFIG=$PWD/kubeconfig.yaml" >> $GITHUB_ENV
 
       - name: Verify Cluster Access
